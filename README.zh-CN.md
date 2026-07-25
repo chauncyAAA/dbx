@@ -364,6 +364,8 @@ cd agents
 
 ```bash
 make package
+
+# pnpm tauri build --target x86_64-apple-darwin
 ```
 
 安装包输出在 `src-tauri/target/release/bundle/` 目录。

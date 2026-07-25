@@ -464,6 +464,7 @@ fn duckdb_value_to_json(row: &duckdb::Row<'_>, idx: usize) -> serde_json::Value 
             let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
             serde_json::Value::String(format!("\\x{hex}"))
         }
+        ValueRef::Geometry(&_) => serde_json::Value::Null,
         ValueRef::Interval { months, days, nanos } => {
             serde_json::Value::String(duckdb_interval_to_string(months, days, nanos))
         }
@@ -473,6 +474,7 @@ fn duckdb_value_to_json(row: &duckdb::Row<'_>, idx: usize) -> serde_json::Value 
         | ValueRef::Map(..)
         | ValueRef::Enum(..)
         | ValueRef::Union(..) => duckdb_owned_value_to_json(&value_ref.to_owned()),
+        _ => serde_json::Value::Null,
     }
 }
 
@@ -532,6 +534,7 @@ fn duckdb_owned_value_to_json(value: &Value) -> serde_json::Value {
                 .collect(),
         ),
         Value::Union(value) => duckdb_owned_value_to_json(value),
+        &_ => serde_json::Value::Null,
     }
 }
 

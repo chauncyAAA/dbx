@@ -6,7 +6,8 @@
 #
 # 2. lld — LLVM linker, 2-3x faster linking than the system default
 #    macOS:  brew install lld
-#            export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/opt/homebrew/bin/lld
+#            export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER=/usr/local/bin/lld
+#            export CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER=/usr/local/bin/lld
 #    Linux:  apt install lld
 #            export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=lld
 #
@@ -17,5 +18,7 @@
 # Enable SQLite's built-in math functions for rusqlite's bundled libsqlite3.
 LIBSQLITE3_FLAGS = "SQLITE_ENABLE_MATH_FUNCTIONS"
 
-[target.x86_64-pc-windows-msvc]
+# rustup target add x86_64-pc-windows-msvc
+#[target.x86_64-pc-windows-msvc]
+[target.x86_64-apple-darwin]
 linker = "rust-lld"

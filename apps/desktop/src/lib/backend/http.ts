@@ -72,13 +72,18 @@ import type {
   RedisCommandResult,
   RedisSlowlogEntry,
   RedisNodeEndpoint,
+  KvInt64,
   KvValue,
   KvListPrefixResponse,
   KvListPrefixOptions,
   KvGetResponse,
+  KvGetOptions,
   KvPutOptions,
   KvPutResponse,
+  KvDeleteOptions,
   KvDeleteResponse,
+  KvHistoryResponse,
+  KvStatusResponse,
   DocumentQueryResult,
   MongoDocumentResult,
   MongoCollectionStatsResult,
@@ -130,6 +135,7 @@ import type {
   DataGridSaveStatementOptions,
   HiveTablePropertiesSqlOptions,
 } from "@/lib/dataGrid/dataGridSql";
+import type { DataGridExtractRequest, DataGridExtractResult } from "@/lib/dataGrid/dataGridCopyExtractor";
 import type { BuildTableStructureChangeSqlOptions, BuildSingleColumnAlterSqlOptions, SqliteTableStructureChangePreview, TableStructureChangeSql } from "@/lib/table/tableStructureEditorSql";
 import type { BuildTableSelectSqlOptions } from "@/lib/table/tableSelectSql";
 import type { DatabaseSearchSql, DatabaseSearchSqlOptions, SearchResultWhereOptions } from "@/lib/database/databaseSearch";
@@ -144,6 +150,13 @@ import type { DataCompareFromTablesOptions, DataCompareFromTablesPreparation, Da
 import { apiUrl, apiWebSocketUrl } from "@/lib/common/webPath";
 import type { DataGridSavePreparation } from "@/lib/backend/tauri";
 import type {
+  NacosBatchPreview,
+  NacosBatchReport,
+  NacosConfigSelector,
+  NacosConfigTransferRequest,
+  NacosConflictPolicy,
+  NacosContentSearchRequest,
+  NacosContentSearchResult,
   NacosConfigHistoryKey,
   NacosConfigHistoryList,
   NacosConfigHistoryQuery,
@@ -158,6 +171,8 @@ import type {
   NacosInstanceInfo,
   NacosInstanceQuery,
   NacosInstanceUpdate,
+  NacosDashboardQuery,
+  NacosDashboardSnapshot,
   NacosNamespaceCreate,
   NacosNamespaceInfo,
   NacosNamespaceUpdate,
@@ -165,6 +180,7 @@ import type {
   NacosRawResponse,
   NacosServiceList,
   NacosServiceQuery,
+  NacosSearchProgress,
 } from "@/types/nacos";
 import { safeLocalStorageGet, safeLocalStorageSet } from "@/lib/backend/safeStorage";
 import { normalizeConnectionTestResult } from "@/lib/connection/connectionDatabaseInfo";
@@ -706,6 +722,10 @@ export async function getTableDdl(connectionId: string, database: string, schema
   return get(`/api/schema/ddl?${qs({ connection_id: connectionId, database, schema, table, object_type: objectType, catalog })}`);
 }
 
+export async function getTableDisplayDdl(connectionId: string, database: string, schema: string, table: string, objectType?: ObjectSourceKind, catalog?: string): Promise<string> {
+  return get(`/api/schema/ddl?${qs({ connection_id: connectionId, database, schema, table, object_type: objectType, catalog, include_postgres_access: true })}`);
+}
+
 export async function prepareSchemaDiff(options: SchemaDiffPreparationOptions): Promise<SchemaDiffPreparation> {
   return post("/api/schema-diff/prepare", options);
 }
@@ -984,6 +1004,10 @@ export async function analyzeEditableQueryEditability(sql: string): Promise<Quer
 
 export async function prepareDataGridSave(options: DataGridSaveStatementOptions): Promise<DataGridSavePreparation> {
   return post("/api/query/prepare-data-grid-save", { options });
+}
+
+export async function extractDataGridSelection(request: DataGridExtractRequest): Promise<DataGridExtractResult> {
+  return post("/api/query/extract-data-grid-selection", { request });
 }
 
 export async function buildDataGridCopyUpdateStatements(options: DataGridCopyUpdateStatementOptions): Promise<string[]> {
@@ -1874,13 +1898,14 @@ function downloadTextFile(filePath: string, fallbackFileName: string, content: s
   URL.revokeObjectURL(url);
 }
 
-export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[]): Promise<void> {
+export async function exportQueryResultXlsx(filePath: string, sheetName: string | undefined, columns: string[], columnTypes: string[], rows: readonly (readonly XlsxCellValue[])[], numericColumnRightAlign?: boolean): Promise<void> {
   const { buildXlsxWorkbook } = await import("@/lib/export/xlsxExport");
   const workbook = buildXlsxWorkbook({
     sheetName: sheetName || "Export",
     columns,
     columnTypes,
     rows,
+    numericColumnRightAlign,
   });
   const fileName = filePath.split(/[\\/]/).pop() || "export.xlsx";
   const blob = new Blob([new Uint8Array(workbook)], {
@@ -1894,7 +1919,7 @@ export async function exportQueryResultXlsx(filePath: string, sheetName: string 
   URL.revokeObjectURL(url);
 }
 
-export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[] }[]): Promise<void> {
+export async function exportQueryResultsXlsx(filePath: string, worksheets: readonly { sheetName?: string; columns: readonly string[]; columnTypes?: readonly string[]; rows: readonly (readonly XlsxCellValue[])[]; numericColumnRightAlign?: boolean }[]): Promise<void> {
   const { buildXlsxWorkbookMulti } = await import("@/lib/export/xlsxExport");
   const workbook = buildXlsxWorkbookMulti(worksheets);
   const fileName = filePath.split(/[\\/]/).pop() || "export.xlsx";
@@ -2003,6 +2028,10 @@ export async function redisSetTtl(connectionId: string, db: number, keyRaw: stri
   return post("/api/redis/set-ttl", { connectionId, db, keyRaw, ttl });
 }
 
+export async function redisSetExpireAt(connectionId: string, db: number, keyRaw: string, expireAt: number): Promise<void> {
+  return post("/api/redis/set-expire-at", { connectionId, db, keyRaw, expireAt });
+}
+
 export async function redisDeleteKeys(connectionId: string, db: number, keyRaws: string[]): Promise<number> {
   return post("/api/redis/delete-keys", { connectionId, db, keyRaws });
 }
@@ -2039,20 +2068,48 @@ export async function redisClusterMasterNodes(connectionId: string): Promise<Red
 // etcd
 // ---------------------------------------------------------------------------
 
-export async function etcdListPrefix(connectionId: string, prefix: string, limit: number, continuation?: string | null): Promise<KvListPrefixResponse> {
-  return post("/api/etcd/list-prefix", { connectionId, prefix, limit, continuation });
+export async function etcdListPrefix(connectionId: string, prefix: string, limit: number, continuation?: string | null, options?: KvListPrefixOptions | null): Promise<KvListPrefixResponse> {
+  return post("/api/etcd/list-prefix", { connectionId, prefix, limit, continuation, revision: options?.revision ?? null, includeValues: options?.includeValues ?? null });
 }
 
-export async function etcdGet(connectionId: string, key: string): Promise<KvGetResponse> {
-  return post("/api/etcd/get", { connectionId, key });
+export async function etcdSupportsTtl(connectionId: string): Promise<boolean> {
+  return post("/api/etcd/supports-ttl", { connectionId });
 }
 
-export async function etcdPut(connectionId: string, key: string, value: KvValue, lease?: number | null): Promise<KvPutResponse> {
-  return post("/api/etcd/put", { connectionId, key, value, lease });
+export async function etcdGet(connectionId: string, key: string, options?: KvGetOptions | null): Promise<KvGetResponse> {
+  return post("/api/etcd/get", { connectionId, key, keyBytes: options?.keyBytes ?? null, revision: options?.revision ?? null, metadataOnly: options?.metadataOnly ?? null });
 }
 
-export async function etcdDelete(connectionId: string, key: string): Promise<KvDeleteResponse> {
-  return post("/api/etcd/delete", { connectionId, key });
+export async function etcdPut(connectionId: string, key: string, value: KvValue, options?: KvPutOptions | number | null): Promise<KvPutResponse> {
+  const legacyLease = typeof options === "number" ? options : null;
+  const putOptions = typeof options === "object" ? options : null;
+  return post("/api/etcd/put", {
+    connectionId,
+    key,
+    value,
+    lease: legacyLease ?? putOptions?.lease ?? null,
+    ttl: putOptions?.ttl ?? null,
+    preserveLease: putOptions?.preserveLease ?? null,
+    keyBytes: putOptions?.keyBytes ?? null,
+    expectedModRevision: putOptions?.expectedModRevision ?? null,
+    expectedCreateRevision: putOptions?.expectedCreateRevision ?? null,
+  });
+}
+
+export async function etcdDelete(connectionId: string, key: string, options?: KvDeleteOptions | null): Promise<KvDeleteResponse> {
+  return post("/api/etcd/delete", { connectionId, key, keyBytes: options?.keyBytes ?? null, expectedModRevision: options?.expectedModRevision ?? null });
+}
+
+export async function etcdRename(connectionId: string, request: { key: string; keyBytes?: KvValue | null; newKey: string; expectedModRevision?: KvInt64 | null }): Promise<{ renamed: boolean; revision?: KvInt64 | null }> {
+  return post("/api/etcd/rename", { connectionId, request });
+}
+
+export async function etcdHistory(connectionId: string, request: { key: string; keyBytes?: KvValue | null; startRevision?: KvInt64 | null; endRevision?: KvInt64 | null; limit: number }): Promise<KvHistoryResponse> {
+  return post("/api/etcd/history", { connectionId, request });
+}
+
+export async function etcdStatus(connectionId: string): Promise<KvStatusResponse> {
+  return post("/api/etcd/status", { connectionId });
 }
 
 // ---------------------------------------------------------------------------
@@ -2111,6 +2168,93 @@ export async function nacosDeleteConfig(connectionId: string, key: NacosConfigKe
   return post("/api/nacos/configs/delete", { connectionId, key });
 }
 
+export async function nacosSearchConfigContent(connectionId: string, req: NacosContentSearchRequest, onProgress?: (progress: NacosSearchProgress) => void): Promise<NacosContentSearchResult> {
+  const response = await fetch(apiUrl("/api/nacos/configs/search"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId, req }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  if (!response.body) throw new Error("Nacos content search did not return a response stream");
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: NacosContentSearchResult | null = null;
+
+  const consumeLine = (line: string) => {
+    if (!line.startsWith("data:")) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    const event = JSON.parse(data) as { type: "progress"; progress: NacosSearchProgress } | { type: "result"; result: NacosContentSearchResult } | { type: "error"; error: string };
+    if (event.type === "progress") onProgress?.(event.progress);
+    else if (event.type === "result") result = event.result;
+    else throw new Error(event.error);
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) consumeLine(line);
+    }
+    buffer += decoder.decode();
+    if (buffer) consumeLine(buffer);
+    if (!result) throw new Error("Nacos content search stream ended without a final result");
+    return result;
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+export async function nacosCancelConfigContentSearch(operationId: string): Promise<boolean> {
+  const result = await post<{ cancelled: boolean }>("/api/nacos/configs/search/cancel", { operationId });
+  return result.cancelled;
+}
+
+export async function nacosExportConfigs(connectionId: string, selector: NacosConfigSelector, _destination: string, fileName = "nacos-configs.zip"): Promise<void> {
+  const response = await fetch(apiUrl("/api/nacos/configs/export"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ connectionId, selector, fileName }),
+  });
+  if (!response.ok) throw new Error(await response.text());
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export async function nacosPreviewConfigImport(connectionId: string, targetNamespace: string, archivePath: string | File): Promise<NacosBatchPreview> {
+  if (!(archivePath instanceof File)) throw new Error("Nacos ZIP import in web mode requires a File object");
+  const formData = new FormData();
+  formData.append("connectionId", connectionId);
+  formData.append("targetNamespace", targetNamespace);
+  formData.append("file", archivePath, archivePath.name);
+  const response = await fetch(apiUrl("/api/nacos/configs/import/preview"), { method: "POST", body: formData });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
+export async function nacosApplyConfigImport(connectionId: string, operationId: string, targetNamespace: string, _archivePath: string | File, planHash: string, conflictPolicy: NacosConflictPolicy, archiveToken?: string): Promise<NacosBatchReport> {
+  if (!archiveToken) throw new Error("The Nacos import preview token is missing or expired");
+  return post("/api/nacos/configs/import/apply", { connectionId, operationId, targetNamespace, archiveToken, planHash, conflictPolicy });
+}
+
+export async function nacosPreviewConfigTransfer(req: NacosConfigTransferRequest): Promise<NacosBatchPreview> {
+  return post("/api/nacos/configs/copy/preview", { req });
+}
+
+export async function nacosApplyConfigTransfer(req: NacosConfigTransferRequest, planHash: string): Promise<NacosBatchReport> {
+  return post("/api/nacos/configs/copy/apply", { req, planHash });
+}
+
 export async function nacosListConfigHistory(connectionId: string, query: NacosConfigHistoryQuery): Promise<NacosConfigHistoryList> {
   return post("/api/nacos/configs/history/list", { connectionId, query });
 }
@@ -2141,6 +2285,10 @@ export async function nacosListInstances(connectionId: string, query: NacosInsta
 
 export async function nacosUpdateInstance(connectionId: string, req: NacosInstanceUpdate): Promise<void> {
   return post("/api/nacos/instances/update", { connectionId, req });
+}
+
+export async function nacosGetDashboard(connectionId: string, query: NacosDashboardQuery): Promise<NacosDashboardSnapshot> {
+  return post("/api/nacos/dashboard", { connectionId, query });
 }
 
 export async function nacosRawRequest(connectionId: string, req: NacosRawRequest): Promise<NacosRawResponse> {

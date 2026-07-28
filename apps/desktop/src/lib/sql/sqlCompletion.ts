@@ -1721,6 +1721,8 @@ function isCallRoutineContext(beforeToken: string): boolean {
   return /\bcall\s+(?:[A-Za-z_][\w$]*\.)?$/i.test(beforeToken) || /\bcall\s+(?:[A-Za-z_][\w$]*\.)?[A-Za-z_][\w$]*$/i.test(beforeToken);
 }
 
+const SQL_IDENTIFIER_START_CHAR = /[@_\p{ID_Start}]/u;
+const SQL_IDENTIFIER_SUFFIX = /[$@_\u200c\u200d\p{ID_Continue}]+$/u;
 const SQL_IDENTIFIER_CONTINUE_CHAR = /[$_\u200c\u200d\p{ID_Continue}]/u;
 
 function hasTableAliasAfterCursor(sql: string, cursor: number): boolean {
@@ -2022,13 +2024,12 @@ function parseTrailingIdentifierPart(input: string, endExclusive: number): { sta
     return null;
   }
 
-  let start = end;
-  while (start >= 0 && /[A-Za-z0-9_$@]/.test(input[start] ?? "")) start -= 1;
-  start += 1;
-  if (start >= endExclusive) return null;
-  const raw = input.slice(start, endExclusive);
-  if (!/^[@A-Za-z_][\w$@]*$/.test(raw)) return null;
-  return { start, raw };
+  const match = SQL_IDENTIFIER_SUFFIX.exec(input.slice(0, endExclusive));
+  if (!match) return null;
+  const raw = match[0];
+  const firstCodePoint = raw.codePointAt(0);
+  if (firstCodePoint === undefined || !SQL_IDENTIFIER_START_CHAR.test(String.fromCodePoint(firstCodePoint))) return null;
+  return { start: match.index, raw };
 }
 
 /**
@@ -2958,13 +2959,26 @@ function buildTableItems(
   const { prefix } = context;
   const qualifierSchema = context.qualifier?.split(".").filter(Boolean).pop();
   const existingAliases = new Set(referencedTables.map((ref) => ref.alias?.toLowerCase()).filter((alias): alias is string => !!alias));
-  return tables
-    .filter((table) => matchesPrefix(table.name, prefix))
+  const matchingTables = tables.filter((table) => matchesPrefix(table.name, prefix));
+  const schemasByTableName = new Map<string, Set<string>>();
+  for (const table of matchingTables) {
+    const tableName = normalizeIdentifierPart(table.name);
+    const schemas = schemasByTableName.get(tableName) ?? new Set<string>();
+    schemas.add(normalizeIdentifierPart(table.schema ?? ""));
+    schemasByTableName.set(tableName, schemas);
+  }
+  return matchingTables
     .map((table) => {
       const qualifiedByContext = !!qualifierSchema && !!table.schema && normalizeIdentifierPart(qualifierSchema) === normalizeIdentifierPart(table.schema);
       const oracleSchemaQualification = databaseType === "oracle" && table.schema && table.schema.toUpperCase() !== "PUBLIC" && (!currentSchema || normalizeIdentifierPart(table.schema) !== normalizeIdentifierPart(currentSchema));
-      const defaultApplyName = oracleSchemaQualification ? `${quoteSqlIdentifier(table.schema!, dialect)}.${quoteSqlIdentifier(table.name, dialect)}` : quoteSqlIdentifier(table.name, dialect);
-      const applyName = qualifiedByContext ? quoteSqlIdentifier(table.name, dialect) : (table.applyName ?? defaultApplyName);
+      // A bare table name is ambiguous when metadata contains the same name in multiple schemas.
+      // Keep Oracle's current-schema behavior, but qualify the generic/PostgreSQL/SQL Server paths.
+      const ambiguousTableName = databaseType !== "oracle" && (schemasByTableName.get(normalizeIdentifierPart(table.name))?.size ?? 0) > 1;
+      const schemaQualification = !!table.schema && (oracleSchemaQualification || ambiguousTableName);
+      const defaultApplyName = schemaQualification ? `${quoteSqlIdentifier(table.schema!, dialect)}.${quoteSqlIdentifier(table.name, dialect)}` : quoteSqlIdentifier(table.name, dialect);
+      const suppliedApplyName = table.applyName?.trim();
+      const suppliedApplyNameIsQualified = suppliedApplyName?.includes(".") === true;
+      const applyName = qualifiedByContext ? quoteSqlIdentifier(table.name, dialect) : ambiguousTableName && !!table.schema && (!suppliedApplyName || !suppliedApplyNameIsQualified) ? defaultApplyName : (suppliedApplyName ?? defaultApplyName);
       const alias = autoAliasTables ? generateTableCompletionAlias(table.name, existingAliases) : "";
       return {
         label: table.name,
@@ -2972,7 +2986,7 @@ function buildTableItems(
         detail: table.detail ?? (table.schema ? `${table.schema}.${table.name}` : table.type),
         apply: formatTableAliasApply(applyName, alias, databaseType),
         boost: computeBoost(table.name, prefix) + 1000 + (table.boost ?? 0),
-        dedupeKey: table.applyName || (databaseType === "oracle" && table.schema) ? applyName : undefined,
+        dedupeKey: table.applyName || ambiguousTableName || (databaseType === "oracle" && table.schema) ? applyName : undefined,
       };
     })
     .sort(compareCompletionItems)
@@ -3487,7 +3501,7 @@ function isFollowedByJoin(beforeToken: string): boolean {
 
 function isInTableListContext(beforeToken: string): boolean {
   if (isInOrderOrGroupByContext(beforeToken)) return false;
-  const cleaned = stripSqlLiterals(beforeToken).trimEnd();
+  const cleaned = activeQueryBlockSql(stripSqlLiterals(beforeToken).trimEnd());
   if (!/,\s*$/.test(cleaned)) return false;
 
   // Only commas in the active top-level table segment should continue table completion.
@@ -3507,6 +3521,32 @@ function isInTableListContext(beforeToken: string): boolean {
     lastTopLevelKeywordIndex(cleaned, "except"),
   );
   return lastBoundary < lastTableIntro;
+}
+
+function activeQueryBlockSql(sql: string): string {
+  let depth = 0;
+  const selectIndexes = new Map<number, number>();
+  const lower = sql.toLowerCase();
+
+  for (let index = 0; index < lower.length; index += 1) {
+    const ch = lower[index] ?? "";
+    if (ch === "(") {
+      depth += 1;
+      continue;
+    }
+    if (ch === ")") {
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+    if (lower.startsWith("select", index) && !isIdentifierPart(lower[index - 1]) && !isIdentifierPart(lower[index + 6])) {
+      selectIndexes.set(depth, index);
+      index += 5;
+    }
+  }
+
+  const activeDepth = Math.max(...[...selectIndexes.keys()].filter((selectDepth) => selectDepth <= depth), -1);
+  const activeSelectIndex = activeDepth >= 0 ? selectIndexes.get(activeDepth) : undefined;
+  return activeSelectIndex == null ? sql : sql.slice(activeSelectIndex);
 }
 
 function collectCompletionColumns(columnsByTable: Map<string, SqlCompletionColumn[]>): Array<SqlCompletionColumn & { key: string }> {

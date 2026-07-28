@@ -1,6 +1,6 @@
 {
   "name": "dbx",
-  "version": "0.5.66",
+  "version": "0.5.68",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -24,7 +24,6 @@
     "test:release": "node --test scripts/release.test.mjs",
     "build:knowledge-base": "node scripts/build-knowledge-base.mjs",
     "typecheck": "vue-tsc --noEmit --project apps/desktop/tsconfig.json",
-    "prebuild": "pnpm run clean",
     "build": "vite build --config apps/desktop/vite.config.ts",
     "build:checked": "pnpm typecheck && pnpm build",
     "check": "node scripts/run-check.mjs",
@@ -38,10 +37,10 @@
     "test": "vitest run",
     "preview": "vite preview --config apps/desktop/vite.config.ts",
     "tauri": "tauri",
-    "prepare": "husky",
-    "clean": "rimraf dist build .cache .vite"
+    "prepare": "husky"
   },
   "dependencies": {
+    "@dbx-app/mongo-shell": "workspace:^",
     "@babel/runtime": "^7.29.7",
     "@codemirror/autocomplete": "^6.20.2",
     "@codemirror/commands": "^6.10.3",
@@ -56,7 +55,7 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/theme-one-dark": "^6.1.3",
     "@codemirror/view": "^6.43.0",
-    "@dbx-app/mongo-shell": "workspace:^",
+    "@internationalized/date": "^3.12.2",
     "@lezer/highlight": "^1.2.3",
     "@lucide/vue": "1.17.0",
     "@msgpack/msgpack": "^3.1.3",
@@ -113,7 +112,6 @@
     "lint-staged": "^16.4.0",
     "oxfmt": "0.53.0",
     "oxlint": "^1.68.0",
-    "rimraf": "^6.1.3",
     "tailwindcss": "^4.3.0",
     "tsx": "^4.22.4",
     "typescript": "~6.0.3",

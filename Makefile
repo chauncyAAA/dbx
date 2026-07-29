@@ -3,7 +3,7 @@
 PNPM ?= pnpm
 TAURI_DEV_PORT ?= 1420
 
-.PHONY: help install docs-install check-tauri-dev-port dev dev-fast dev-web dev-backend build package docs docs-build check test cargo-check-fast cargo-test-fast db db-list db-verify db-down db-reset db-check db-completion clean
+.PHONY: help install docs-install check-tauri-dev-port dev dev-fast dev-web dev-backend build package docs docs-build check test cargo-check-fast cargo-test-fast db db-list db-verify db-down db-reset db-check db-completion
 
 export DB
 export DB_VERSION
@@ -128,6 +128,3 @@ db-check:
 db-completion:
 	@$(PNPM) db:env -- completion
 
-clean:
-	$(PNPM) run clean
-	cargo clean

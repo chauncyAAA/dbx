@@ -44,7 +44,7 @@ import ProductionContextBadge from "@/components/common/ProductionContextBadge.v
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import LightTooltip from "@/components/ui/LightTooltip.vue";
-import type { ColumnInfo, ConnectionConfig, DatabaseType, TreeNode, TreeNodeType } from "@/types/database";
+import type { ColumnInfo, ConnectionConfig, DatabaseType, TreeNode } from "@/types/database";
 import { alignedCommentLeadingWidth, canTreeNodePin, canTreeNodeShowExpander, sidebarTreeNodeComment, trailingCommentAvailableWidth, trailingCommentGapPx, treeItemPaddingLeft, treeLabelWidthClass, usesFullWidthTreeLabel } from "@/lib/sidebar/sidebarTreeItemLayout";
 import { clearActiveTableReferencePayload, createTableReferencePayload, createTableReferenceDropEvent, setActiveTableReferencePayload, type QueryEditorTableReferencePayload } from "@/lib/editor/queryEditorTableDrop";
 import { formatSidebarObjectStorage } from "@/lib/sidebar/sidebarDatabaseStorage";
@@ -64,6 +64,7 @@ import { focusSidebarRenameInput } from "@/lib/sidebar/sidebarRenameFocus";
 import { useDragSort } from "@/composables/useDragSort";
 import { sidebarTreeRuntimeKey } from "@/lib/sidebar/sidebarTreeRuntime";
 import { treeNodePinKey } from "@/lib/app/pinnedItems";
+import { isTreeGroupNodeType } from "@/lib/sidebar/treeNodeGroup";
 
 const { t } = useI18n();
 
@@ -226,6 +227,11 @@ function getIconInfo(node: TreeNode): { icon: any; colorClass: string } | null {
       return { icon: Link, colorClass: "text-blue-400" };
     case "group-triggers":
       return { icon: Zap, colorClass: "text-orange-400" };
+    case "group-constraints":
+      return { icon: Key, colorClass: "text-amber-500" };
+    case "group-table-partitions":
+    case "group-table-subpartitions":
+      return { icon: node.isExpanded ? FolderOpen : FolderClosed, colorClass: "text-green-400" };
     case "object-browser":
       return { icon: TableProperties, colorClass: "text-primary" };
     case "user-admin":
@@ -306,25 +312,8 @@ function getIconInfo(node: TreeNode): { icon: any; colorClass: string } | null {
   }
 }
 
-const groupTypes: Set<TreeNodeType> = new Set([
-  "group-columns",
-  "group-indexes",
-  "group-fkeys",
-  "group-triggers",
-  "group-tables",
-  "group-views",
-  "group-materialized-views",
-  "group-procedures",
-  "group-functions",
-  "group-sequences",
-  "group-packages",
-  "group-types",
-  "group-partitions",
-  "group-extensions",
-]);
-
 function isGroupLabel(node: TreeNode): boolean {
-  return groupTypes.has(node.type);
+  return isTreeGroupNodeType(node.type);
 }
 
 function displayLabel(node: TreeNode): string {
@@ -714,8 +703,8 @@ const tableSearchStyle = computed(() => {
   return {
     paddingLeft: paddingLeft.value,
     "--tree-table-search-row-bg": rowBackgroundColor,
-    "--tree-table-search-input-bg": color ? hexToRgba(color, isActiveConnectionScope.value ? 0.05 : 0.03) : "hsl(var(--background) / 0.56)",
-    "--tree-table-search-border": color ? hexToRgba(color, isActiveConnectionScope.value ? 0.12 : 0.08) : "hsl(var(--border) / 0.36)",
+    "--tree-table-search-input-bg": color ? hexToRgba(color, isActiveConnectionScope.value ? 0.05 : 0.03) : "color-mix(in srgb, var(--background) 56%, transparent)",
+    "--tree-table-search-border": color ? hexToRgba(color, isActiveConnectionScope.value ? 0.12 : 0.08) : "color-mix(in srgb, var(--border) 36%, transparent)",
   };
 });
 
@@ -1339,33 +1328,29 @@ function onKeydown(event: KeyboardEvent) {
 /* Multi-selection treats every selected row as equal; keep focus neutral. */
 .tree-item-active--selection-set:focus {
   background-color: var(--tree-connection-active-bg, rgb(235 235 235)) !important;
-  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.14);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 14%, transparent);
 }
 :root.dark .tree-item-active--selection-set:focus {
   background-color: var(--tree-connection-active-bg, rgb(36 36 36)) !important;
-  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.18);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 18%, transparent);
 }
 
-/* Locate highlight: instant amber, then fade on removal */
+/* Locate highlight: instant warning tint, then fade on removal */
 .tree-item-highlight {
-  background-color: rgb(253 225 167) !important;
-  background-color: oklch(0.92 0.08 85) !important;
+  background-color: var(--warning-bg) !important;
   transition: background-color 0.28s ease-out;
 }
 
 :root.dark .tree-item-highlight {
-  background-color: rgb(110 67 0) !important;
-  background-color: oklch(0.42 0.12 80) !important;
+  background-color: var(--warning-bg) !important;
   transition: background-color 0.28s ease-out;
 }
 
 .tree-item-connection-tint.tree-item-highlight::before {
-  background-color: rgb(253 225 167) !important;
-  background-color: oklch(0.92 0.08 85) !important;
+  background-color: var(--warning-bg) !important;
 }
 
 :root.dark .tree-item-connection-tint.tree-item-highlight::before {
-  background-color: rgb(110 67 0) !important;
-  background-color: oklch(0.42 0.12 80) !important;
+  background-color: var(--warning-bg) !important;
 }
 </style>

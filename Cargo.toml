@@ -1,7 +1,34 @@
 [workspace]
-resolver = "2"
+resolver = "2" # 使用 Rust 2021 的依赖解析器
 members = ["src-tauri", "crates/dbx-core", "crates/dbx-web", "crates/dbx-mcp", "crates/dbx-cli"]
 exclude = ["vendor/ctor", "vendor/dirs-sys", "vendor/pageant", "vendor/rumqttc", "vendor/wry"]
+
+[workspace.package]
+#version = "0.1.0"
+#edition = "2021"
+#license = "MIT"
+
+[workspace.dependencies]
+# 共享依赖
+#serde = { version = "1.0", features = ["derive"] }
+#tokio = { version = "1.0", features = ["full"] }
+#tracing = "0.1"
+
+[dev-dependencies]
+# 测试依赖
+
+[features]
+#default = ["std"]
+#std = []
+#async = ["tokio"]
+
+#[lib]
+#name = "my_lib"
+#path = "src/lib.rs"
+
+#[[bin]]
+#name = "my_cli"
+#path = "src/main.rs"
 
 [patch.crates-io]
 # Tauri 2.11 uses ctor 0.8, which excludes Rust's win7 vendor. This vendors
@@ -26,9 +53,32 @@ postgres-protocol = { git = "https://github.com/t8y2/tokio-postgres-gaussdb.git"
 # sha256_password auth plugin. Remove after upstream support lands.
 mysql_async = { git = "https://github.com/t8y2/mysql_async.git", rev = "b615bb0b10b5975182a4aa069cabc3d09021f6ab" }
 
+[profile.dev]
+opt-level = 0 # 无优化
+debug = true           # 完整调试信息
+debug-assertions = true
+overflow-checks = true
+lto = false
+strip = false
+panic = 'unwind'
+incremental = true
+codegen-units = 256
+
 [profile.release]
 panic = "abort"
 strip = true
 lto = true
 codegen-units = 1
 opt-level = "s"
+
+[profile.chauncy]
+inherits = "release"
+panic = "abort"
+strip = true
+lto = "fat"
+codegen-units = 16
+opt-level = "s"
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = false

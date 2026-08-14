@@ -1,3 +1,4 @@
+# 虚拟清单 它本身不是一个软件包（crate），而是用来管理和组织工作区（workspace）中多个子软件包的
 [workspace]
 resolver = "2" # 使用 Rust 2021 的依赖解析器
 members = ["src-tauri", "crates/dbx-core", "crates/dbx-web", "crates/dbx-mcp", "crates/dbx-cli"]
@@ -14,7 +15,7 @@ exclude = ["vendor/ctor", "vendor/dirs-sys", "vendor/pageant", "vendor/rumqttc",
 #tokio = { version = "1.0", features = ["full"] }
 #tracing = "0.1"
 
-[dev-dependencies]
+#[dev-dependencies]
 # 测试依赖
 
 #[features]
